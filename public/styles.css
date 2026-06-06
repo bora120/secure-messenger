@@ -276,17 +276,29 @@ body {
   border-radius: 6px;
   background: var(--bg-card);
 }
+.member-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+}
 .member-check-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.88rem;
-  padding: 0.2rem 0.4rem;
-  border-radius: 4px;
-  cursor: pointer;
 }
 .member-check-item:hover { background: var(--bg); }
-.member-check-item input[type="checkbox"] { cursor: pointer; }
+.member-check-item input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
 
 .group-list {
   display: flex;
