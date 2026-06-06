@@ -265,6 +265,13 @@ export async function buildPgBackend(pool) {
       );
       return r.rows;
     },
+    // [추가] 단체방 나가기
+    async leaveGroup(groupId, userId) {
+      await pool.query(
+        'DELETE FROM group_members WHERE group_id = $1 AND user_id = $2',
+        [groupId, userId]
+      );
+    },
   };
 }
 
@@ -486,6 +493,11 @@ async function trySqlite() {
             ORDER BY gm.created_at ASC`
         ).all(userId, groupId);
       },
+      // [추가] 단체방 나가기
+      async leaveGroup(groupId, userId) {
+        db.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?')
+          .run(groupId, userId);
+      },
     };
   } catch (err) {
     return null;
@@ -613,6 +625,13 @@ function jsonBackend() {
         .filter((m) => m.group_id === groupId && myKeys[m.id] !== undefined)
         .map((m) => ({ ...m, enc_key: myKeys[m.id] }))
         .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    },
+    // [추가] 단체방 나가기
+    async leaveGroup(groupId, userId) {
+      data.groupMembers = data.groupMembers.filter(
+        (m) => !(m.group_id === groupId && m.user_id === userId)
+      );
+      persist();
     },
   };
 }
