@@ -8,8 +8,8 @@
 </head>
 <body>
   <div class="app">
-    <header class="topbar">
-      <h1>🔐 Secure Messenger</h1>
+    <header class="topbar"> 
+      <h1>🔐Secure Messenger</h1>
       <div id="session" class="session hidden">
         <span id="me"></span>
         <button id="logoutBtn" class="btn-ghost">로그아웃</button>
@@ -61,22 +61,9 @@
       <div id="dmView">
         <div class="compose card">
           <h2>메시지 보내기</h2>
-          <label>받는 사람</label>
-          <div class="custom-select">
-            <button
-              type="button"
-              id="recipientTrigger"
-              class="select-trigger">
-              <span id="selectedRecipient">
-                사용자를 선택하세요
-              </span>
-              <span class="select-arrow">⌄</span>
-            </button>
-            <div
-              id="recipientDropdown"
-              class="select-dropdown hidden">
-            </div>
-          </div>
+          <label>받는 사람
+            <select id="recipient"></select>
+          </label>
           <label>내용
             <textarea id="messageBody" rows="3" placeholder="메시지를 입력하세요..."></textarea>
           </label>
@@ -135,7 +122,6 @@
                 <strong id="groupChatName"></strong>
                 <span id="groupChatMembers" class="chat-members"></span>
                 <button id="groupRefreshBtn" class="btn-ghost">새로고침</button>
-                <button id="groupLeaveBtn" class="btn-danger">나가기</button>
               </div>
               <div id="groupMessageList" class="chat-messages"></div>
               <div class="chat-compose">
