@@ -262,3 +262,96 @@ if (isDirectRun) {
 }
 
 export default app;
+
+// ===========================================================================
+// 단체방 API
+// ===========================================================================
+
+// 단체방 생성
+app.post('/api/groups', requireAuth, async (req, res) => {
+  const { name, memberIds } = req.body || {};
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({ error: '방 이름을 입력해주세요.' });
+  }
+  if (!Array.isArray(memberIds) || memberIds.length === 0) {
+    return res.status(400).json({ error: '멤버를 1명 이상 선택해야 합니다.' });
+  }
+  const store = getStore();
+  const id = await store.createGroup(
+    name.trim(),
+    req.user.id,
+    new Date().toISOString(),
+    memberIds.map(Number)
+  );
+  return res.status(201).json({ id });
+});
+
+// 내가 속한 단체방 목록
+app.get('/api/groups', requireAuth, async (req, res) => {
+  const store = getStore();
+  const groups = await store.listGroupsForUser(req.user.id);
+  const out = await Promise.all(groups.map(async (g) => {
+    const members = await store.getGroupMembers(g.id);
+    return { id: g.id, name: g.name, createdBy: g.created_by, createdAt: g.created_at, members };
+  }));
+  return res.json({ groups: out });
+});
+
+// 단체방 멤버 조회 (암호화용 공개키 포함)
+app.get('/api/groups/:id/members', requireAuth, async (req, res) => {
+  const store = getStore();
+  const groupId = Number(req.params.id);
+  if (!(await store.isGroupMember(groupId, req.user.id))) {
+    return res.status(403).json({ error: '이 방의 멤버가 아닙니다.' });
+  }
+  const members = await store.getGroupMembers(groupId);
+  return res.json({ members });
+});
+
+// 단체방 메시지 전송
+app.post('/api/groups/:id/messages', requireAuth, async (req, res) => {
+  const store = getStore();
+  const groupId = Number(req.params.id);
+  if (!(await store.isGroupMember(groupId, req.user.id))) {
+    return res.status(403).json({ error: '이 방의 멤버가 아닙니다.' });
+  }
+  const { iv, ciphertext, signature, memberKeys } = req.body || {};
+  if (!iv || !ciphertext || !signature || !Array.isArray(memberKeys) || memberKeys.length === 0) {
+    return res.status(400).json({ error: '메시지 필드가 누락되었습니다.' });
+  }
+  const id = await store.createGroupMessage(
+    groupId,
+    req.user.id,
+    iv,
+    ciphertext,
+    signature,
+    new Date().toISOString(),
+    memberKeys
+  );
+  return res.status(201).json({ id });
+});
+
+// 단체방 메시지 조회
+app.get('/api/groups/:id/messages', requireAuth, async (req, res) => {
+  const store = getStore();
+  const groupId = Number(req.params.id);
+  if (!(await store.isGroupMember(groupId, req.user.id))) {
+    return res.status(403).json({ error: '이 방의 멤버가 아닙니다.' });
+  }
+  const rows = await store.getGroupMessages(groupId, req.user.id);
+  const out = await Promise.all(rows.map(async (m) => {
+    const sender = await store.getUserById(m.sender_id);
+    return {
+      id: m.id,
+      senderId: m.sender_id,
+      senderName: sender ? sender.username : '(알 수 없음)',
+      senderSigPubkey: sender ? sender.sig_pubkey : null,
+      iv: m.iv,
+      ciphertext: m.ciphertext,
+      signature: m.signature,
+      encKey: m.enc_key,
+      createdAt: m.created_at,
+    };
+  }));
+  return res.json({ messages: out });
+});
