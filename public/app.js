@@ -399,3 +399,267 @@ function escapeHtml(s) {
   }
   showAuth();
 })();
+
+// ===========================================================================
+// 단체방 UI
+// ===========================================================================
+
+// --- 메인 탭 전환 ---
+let currentView = 'dm';
+document.querySelectorAll('.main-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.main-tab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentView = btn.dataset.view;
+    $('dmView').classList.toggle('hidden', currentView !== 'dm');
+    $('groupView').classList.toggle('hidden', currentView !== 'group');
+    if (currentView === 'group') loadGroups();
+  });
+});
+
+// --- 단체방 만들기 폼 토글 ---
+$('showCreateGroupBtn').addEventListener('click', async () => {
+  const form = $('createGroupForm');
+  const isHidden = form.classList.contains('hidden');
+  form.classList.toggle('hidden', !isHidden);
+  if (isHidden) await populateMemberChecklist();
+});
+$('cancelGroupBtn').addEventListener('click', () => {
+  $('createGroupForm').classList.add('hidden');
+  $('createGroupMsg').textContent = '';
+});
+
+async function populateMemberChecklist() {
+  const list = $('groupMemberList');
+  list.innerHTML = '<span style="font-size:0.8rem;color:var(--text-muted)">불러오는 중...</span>';
+  try {
+    const { users } = await api('GET', '/users');
+    if (users.length === 0) {
+      list.innerHTML = '<span style="font-size:0.8rem;color:var(--text-muted)">(다른 사용자 없음)</span>';
+      return;
+    }
+    list.innerHTML = '';
+    for (const u of users) {
+      const label = document.createElement('label');
+      label.className = 'member-check-item';
+      label.innerHTML = `<input type="checkbox" value="${u.id}" /> ${escapeHtml(u.username)}`;
+      list.appendChild(label);
+    }
+  } catch (err) {
+    list.innerHTML = `<span style="font-size:0.8rem;color:red">${escapeHtml(err.message)}</span>`;
+  }
+}
+
+// --- 단체방 생성 ---
+$('createGroupBtn').addEventListener('click', async () => {
+  const name = $('groupName').value.trim();
+  const memberIds = [...$('groupMemberList').querySelectorAll('input[type=checkbox]:checked')]
+    .map((cb) => Number(cb.value));
+  $('createGroupMsg').textContent = '';
+
+  if (!name) { $('createGroupMsg').textContent = '방 이름을 입력해주세요.'; return; }
+  if (memberIds.length === 0) { $('createGroupMsg').textContent = '멤버를 1명 이상 선택해주세요.'; return; }
+
+  try {
+    await api('POST', '/groups', { name, memberIds });
+    $('createGroupForm').classList.add('hidden');
+    $('groupName').value = '';
+    $('createGroupMsg').textContent = '';
+    await loadGroups();
+  } catch (err) {
+    $('createGroupMsg').textContent = `오류: ${err.message}`;
+  }
+});
+
+// --- 단체방 목록 로드 ---
+let currentGroupId = null;
+let currentGroupMembers = [];
+
+async function loadGroups() {
+  const list = $('groupList');
+  list.innerHTML = '<p class="empty">불러오는 중...</p>';
+  try {
+    const { groups } = await api('GET', '/groups');
+    if (groups.length === 0) {
+      list.innerHTML = '<p class="empty">참여 중인 단체방이 없습니다.</p>';
+      return;
+    }
+    list.innerHTML = '';
+    for (const g of groups) {
+      const item = document.createElement('div');
+      item.className = 'group-item' + (g.id === currentGroupId ? ' active' : '');
+      item.dataset.gid = g.id;
+      const memberNames = g.members.map((m) => m.username).join(', ');
+      item.innerHTML = `
+        <div class="group-item-name">${escapeHtml(g.name)}</div>
+        <div class="group-item-meta">${escapeHtml(memberNames)}</div>
+      `;
+      item.addEventListener('click', () => openGroupChat(g));
+      list.appendChild(item);
+    }
+  } catch (err) {
+    list.innerHTML = `<p class="empty">오류: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+// --- 단체방 채팅 열기 ---
+async function openGroupChat(group) {
+  currentGroupId = group.id;
+  currentGroupMembers = group.members;
+
+  // 사이드바 active 표시
+  document.querySelectorAll('.group-item').forEach((el) => {
+    el.classList.toggle('active', Number(el.dataset.gid) === group.id);
+  });
+
+  $('groupChatPlaceholder').classList.add('hidden');
+  $('groupChatRoom').classList.remove('hidden');
+  $('groupChatName').textContent = group.name;
+  $('groupChatMembers').textContent = group.members.map((m) => m.username).join(', ');
+
+  await loadGroupMessages();
+}
+
+// --- 단체방 메시지 로드 ---
+$('groupRefreshBtn').addEventListener('click', loadGroupMessages);
+
+async function loadGroupMessages() {
+  if (!currentGroupId) return;
+  const list = $('groupMessageList');
+  list.innerHTML = '<p class="empty" style="text-align:center">불러오는 중...</p>';
+
+  let myKeys;
+  try { myKeys = await loadPrivateKeys(state.user.username); } catch { myKeys = null; }
+
+  try {
+    const { messages } = await api('GET', `/groups/${currentGroupId}/messages`);
+    list.innerHTML = '';
+
+    if (messages.length === 0) {
+      list.innerHTML = '<p class="empty" style="text-align:center">메시지가 없습니다. 첫 메시지를 보내보세요!</p>';
+      return;
+    }
+
+    for (const m of messages) {
+      const isMine = m.senderId === state.user.id;
+      const card = document.createElement('div');
+      card.className = 'chat-msg ' + (isMine ? 'mine' : 'theirs');
+
+      if (!isMine) {
+        const senderEl = document.createElement('div');
+        senderEl.className = 'chat-msg-sender';
+        senderEl.textContent = m.senderName;
+        card.appendChild(senderEl);
+      }
+
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-msg-bubble';
+
+      if (!myKeys) {
+        bubble.textContent = '🔒 개인키 없음';
+        bubble.classList.add('locked');
+      } else {
+        try {
+          const encPriv = await importEncPrivateKey(myKeys.encPrivJwk);
+          const senderSigPub = m.senderSigPubkey ? await importSigPublicKey(m.senderSigPubkey) : null;
+
+          const { plaintext, verified } = await decryptMessage(
+            { encKey: m.encKey, iv: m.iv, ciphertext: m.ciphertext, signature: m.signature },
+            encPriv,
+            senderSigPub,
+            m.senderId,
+            state.user.id
+          );
+          bubble.textContent = plaintext;
+
+          const verifyBadge = document.createElement('div');
+          verifyBadge.className = 'chat-msg-verify';
+          verifyBadge.innerHTML = verified
+            ? '<span class="badge ok" style="font-size:0.65rem">✔ 서명 검증됨</span>'
+            : '<span class="badge bad" style="font-size:0.65rem">✖ 서명 실패</span>';
+          card.appendChild(bubble);
+          card.appendChild(verifyBadge);
+
+          const timeEl = document.createElement('div');
+          timeEl.className = 'chat-msg-time';
+          timeEl.textContent = new Date(m.createdAt).toLocaleString('ko-KR');
+          card.appendChild(timeEl);
+          list.appendChild(card);
+          continue;
+        } catch {
+          bubble.textContent = '⚠️ 복호화 실패';
+          bubble.classList.add('locked');
+        }
+      }
+
+      card.appendChild(bubble);
+      const timeEl = document.createElement('div');
+      timeEl.className = 'chat-msg-time';
+      timeEl.textContent = new Date(m.createdAt).toLocaleString('ko-KR');
+      card.appendChild(timeEl);
+      list.appendChild(card);
+    }
+
+    list.scrollTop = list.scrollHeight;
+  } catch (err) {
+    list.innerHTML = `<p class="empty">오류: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+// --- 단체방 메시지 전송 ---
+$('groupSendBtn').addEventListener('click', async () => {
+  if (!currentGroupId) return;
+  const plaintext = $('groupMessageBody').value.trim();
+  $('groupSendMsg').textContent = '';
+  if (!plaintext) { $('groupSendMsg').textContent = '메시지를 입력하세요.'; return; }
+
+  try {
+    const myKeys = await loadPrivateKeys(state.user.username);
+    if (!myKeys) { $('groupSendMsg').textContent = '개인키가 없어 서명할 수 없습니다.'; return; }
+
+    const sigPriv = await importSigPrivateKey(myKeys.sigPrivJwk);
+    const data_enc = new TextEncoder().encode(plaintext);
+
+    // AES-256-GCM 키 생성
+    const aesKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, data_enc);
+    const rawAes = await crypto.subtle.exportKey('raw', aesKey);
+
+    // 각 멤버의 공개키로 AES 키를 개별 암호화
+    const memberKeys = [];
+    for (const member of currentGroupMembers) {
+      if (!member.enc_pubkey) continue;
+      const memberPub = await importEncPublicKey(member.enc_pubkey);
+      const encKeyBuf = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, memberPub, rawAes);
+      memberKeys.push({ userId: member.id, encKey: bufToB64(encKeyBuf) });
+    }
+
+    // 서명: 그룹ID + 송신자ID + 평문
+    const prefix = new TextEncoder().encode(`group:${currentGroupId}|${state.user.id}|`);
+    const sigPayload = new Uint8Array(prefix.length + data_enc.length);
+    sigPayload.set(prefix, 0);
+    sigPayload.set(data_enc, prefix.length);
+    const sigBuf = await crypto.subtle.sign({ name: 'RSA-PSS', saltLength: 32 }, sigPriv, sigPayload);
+
+    await api('POST', `/groups/${currentGroupId}/messages`, {
+      iv: bufToB64(iv.buffer),
+      ciphertext: bufToB64(cipherBuf),
+      signature: bufToB64(sigBuf),
+      memberKeys,
+    });
+
+    $('groupMessageBody').value = '';
+    await loadGroupMessages();
+  } catch (err) {
+    $('groupSendMsg').textContent = `전송 오류: ${err.message}`;
+  }
+});
+
+// bufToB64 헬퍼 (crypto.js 내부 함수 재노출)
+function bufToB64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
