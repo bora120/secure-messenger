@@ -144,9 +144,18 @@ export async function importSigPrivateKey(jwk) {
 // 이렇게 하면 공격자가 암호문을 가로채 다른 사람에게 재전송(replay)하거나
 // 송신자/수신자를 바꿔치기해도 서명 검증이 실패한다.
 
-// 서명 대상 바이트를 만든다: "senderId|receiverId|" + 평문
+// 서명 대상 바이트를 만든다: "senderId|receiverId|" + 평문 (1:1 DM용)
 function buildSigningPayload(senderId, receiverId, plaintextBytes) {
   const prefix = enc.encode(`${senderId}|${receiverId}|`);
+  const combined = new Uint8Array(prefix.length + plaintextBytes.length);
+  combined.set(prefix, 0);
+  combined.set(plaintextBytes, prefix.length);
+  return combined;
+}
+
+// 서명 대상 바이트를 만든다: "group:groupId|senderId|" + 평문 (단체방용)
+function buildGroupSigningPayload(groupId, senderId, plaintextBytes) {
+  const prefix = enc.encode(`group:${groupId}|${senderId}|`);
   const combined = new Uint8Array(prefix.length + plaintextBytes.length);
   combined.set(prefix, 0);
   combined.set(plaintextBytes, prefix.length);
@@ -198,7 +207,7 @@ export async function encryptMessage(
 }
 
 // ===========================================================================
-// 4. 메시지 복호화 + 서명 검증 (수신자 측)
+// 4. 메시지 복호화 + 서명 검증 (수신자 측) — 1:1 DM 전용
 // ===========================================================================
 //
 // 입력:
@@ -208,8 +217,6 @@ export async function encryptMessage(
 //   senderId, receiverId  : 서명 검증에 사용할 송신자/수신자 ID
 // 출력:
 //   { plaintext, verified }
-//   - plaintext : 복호화된 평문 (복호화 실패 시 예외 발생)
-//   - verified  : 서명 검증 통과 여부 (true/false)
 
 export async function decryptMessage(
   payload, receiverEncPrivateKey, senderSigPublicKey, senderId, receiverId
@@ -240,11 +247,72 @@ export async function decryptMessage(
   const plaintext = dec.decode(dataBuf);
 
   // (4) 서명 검증: "송신자ID|수신자ID|평문"에 대해 송신자 공개키로 확인.
-  //     송신자가 없거나(senderSigPublicKey=null) ID가 안 맞으면 verified=false.
   let verified = false;
   if (senderSigPublicKey) {
     const signingPayload = buildSigningPayload(
       senderId, receiverId, new Uint8Array(dataBuf)
+    );
+    verified = await crypto.subtle.verify(
+      { name: 'RSA-PSS', saltLength: 32 },
+      senderSigPublicKey,
+      b64ToBuf(payload.signature),
+      signingPayload
+    );
+  }
+
+  return { plaintext, verified };
+}
+
+// ===========================================================================
+// 5. 단체방 메시지 복호화 + 서명 검증 (수신자 측) — 단체방 전용
+// ===========================================================================
+//
+// 입력:
+//   payload               : { encKey, iv, ciphertext, signature } (base64)
+//   receiverEncPrivateKey : 수신자의 RSA-OAEP 개인키
+//   senderSigPublicKey    : 송신자의 RSA-PSS 공개키
+//   groupId               : 단체방 ID
+//   senderId              : 송신자 ID
+// 출력:
+//   { plaintext, verified }
+//
+// 단체방 서명 포맷: "group:groupId|senderId|평문"
+// 전송 측(app.js)과 동일한 포맷으로 검증해야 서명이 통과된다.
+
+export async function decryptGroupMessage(
+  payload, receiverEncPrivateKey, senderSigPublicKey, groupId, senderId
+) {
+  // (1) 암호화된 AES 키를 수신자 RSA-OAEP 개인키로 복호화
+  const rawAes = await crypto.subtle.decrypt(
+    { name: 'RSA-OAEP' },
+    receiverEncPrivateKey,
+    b64ToBuf(payload.encKey)
+  );
+
+  // (2) AES 키 복원
+  const aesKey = await crypto.subtle.importKey(
+    'raw',
+    rawAes,
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['decrypt']
+  );
+
+  // (3) 본문 복호화
+  const dataBuf = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: new Uint8Array(b64ToBuf(payload.iv)) },
+    aesKey,
+    b64ToBuf(payload.ciphertext)
+  );
+
+  const plaintext = dec.decode(dataBuf);
+
+  // (4) 서명 검증: "group:groupId|senderId|평문" 포맷으로 검증
+  //     전송 시 app.js에서 만든 포맷과 정확히 일치해야 verified=true
+  let verified = false;
+  if (senderSigPublicKey) {
+    const signingPayload = buildGroupSigningPayload(
+      groupId, senderId, new Uint8Array(dataBuf)
     );
     verified = await crypto.subtle.verify(
       { name: 'RSA-PSS', saltLength: 32 },
