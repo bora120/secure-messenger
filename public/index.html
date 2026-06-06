@@ -50,25 +50,87 @@
 
     <!-- 메신저 -->
     <section id="messengerView" class="messenger hidden">
-      <div class="compose card">
-        <h2>메시지 보내기</h2>
-        <label>받는 사람
-          <select id="recipient"></select>
-        </label>
-        <label>내용
-          <textarea id="messageBody" rows="3" placeholder="메시지를 입력하세요..."></textarea>
-        </label>
-        <button id="sendBtn" class="btn-primary">암호화하여 전송</button>
-        <p id="sendMsg" class="msg"></p>
+
+      <!-- 상단 탭 -->
+      <div class="main-tabs">
+        <button class="main-tab active" data-view="dm">💬 1:1 메시지</button>
+        <button class="main-tab" data-view="group">👥 단체방</button>
       </div>
 
-      <div class="inbox card">
-        <div class="inbox-head">
-          <h2>받은 메시지</h2>
-          <button id="refreshBtn" class="btn-ghost">새로고침</button>
+      <!-- 1:1 메시지 뷰 -->
+      <div id="dmView">
+        <div class="compose card">
+          <h2>메시지 보내기</h2>
+          <label>받는 사람
+            <select id="recipient"></select>
+          </label>
+          <label>내용
+            <textarea id="messageBody" rows="3" placeholder="메시지를 입력하세요..."></textarea>
+          </label>
+          <button id="sendBtn" class="btn-primary">암호화하여 전송</button>
+          <p id="sendMsg" class="msg"></p>
         </div>
-        <div id="messageList" class="message-list">
-          <p class="empty">받은 메시지가 없습니다.</p>
+
+        <div class="inbox card">
+          <div class="inbox-head">
+            <h2>받은 메시지</h2>
+            <button id="refreshBtn" class="btn-ghost">새로고침</button>
+          </div>
+          <div id="messageList" class="message-list">
+            <p class="empty">받은 메시지가 없습니다.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 단체방 뷰 -->
+      <div id="groupView" class="hidden">
+        <div class="group-layout">
+          <!-- 왼쪽: 방 목록 + 생성 -->
+          <div class="group-sidebar card">
+            <div class="inbox-head">
+              <h2>단체방</h2>
+              <button id="showCreateGroupBtn" class="btn-ghost">+ 만들기</button>
+            </div>
+
+            <!-- 방 만들기 폼 -->
+            <div id="createGroupForm" class="create-group-form hidden">
+              <label>방 이름
+                <input type="text" id="groupName" placeholder="예) 보안프로토콜팀" />
+              </label>
+              <label>멤버 선택 (다중 선택 가능)</label>
+              <div id="groupMemberList" class="member-checklist"></div>
+              <div class="form-actions">
+                <button id="createGroupBtn" class="btn-primary">생성</button>
+                <button id="cancelGroupBtn" class="btn-ghost">취소</button>
+              </div>
+              <p id="createGroupMsg" class="msg"></p>
+            </div>
+
+            <!-- 방 목록 -->
+            <div id="groupList" class="group-list">
+              <p class="empty">참여 중인 단체방이 없습니다.</p>
+            </div>
+          </div>
+
+          <!-- 오른쪽: 채팅창 -->
+          <div class="group-chat card">
+            <div id="groupChatPlaceholder" class="chat-placeholder">
+              <span>👈 단체방을 선택하거나 새로 만들어보세요</span>
+            </div>
+            <div id="groupChatRoom" class="hidden">
+              <div class="chat-header">
+                <strong id="groupChatName"></strong>
+                <span id="groupChatMembers" class="chat-members"></span>
+                <button id="groupRefreshBtn" class="btn-ghost">새로고침</button>
+              </div>
+              <div id="groupMessageList" class="chat-messages"></div>
+              <div class="chat-compose">
+                <textarea id="groupMessageBody" rows="2" placeholder="메시지를 입력하세요..."></textarea>
+                <button id="groupSendBtn" class="btn-primary">전송</button>
+              </div>
+              <p id="groupSendMsg" class="msg"></p>
+            </div>
+          </div>
         </div>
       </div>
 
