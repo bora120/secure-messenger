@@ -746,3 +746,34 @@ async function leaveGroup(groupId, groupName) {
     alert(`나가기 오류: ${err.message}`);
   }
 }
+
+
+// 토글 관련
+document.addEventListener('click', (e) => {
+
+  const select = document.querySelector('.custom-select');
+
+  if (!select) return;
+
+  if (!select.contains(e.target)) {
+
+    $('recipientDropdown').classList.add('hidden');
+
+    $('recipientTrigger').classList.remove('open');
+  }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+
+  const trigger = $('recipientTrigger');
+
+  if (!trigger) return;
+
+  trigger.addEventListener('click', () => {
+
+    $('recipientDropdown').classList.toggle('hidden');
+
+    trigger.classList.toggle('open');
+
+  });
+});
