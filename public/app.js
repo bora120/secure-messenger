@@ -686,6 +686,7 @@ async function leaveGroup(groupId, groupName) {
     `"${groupName}" 방에서 나가시겠습니까?\n나간 후에는 새 메시지를 받을 수 없습니다.`
   );
   if (!confirmed) return;
+  
   try {
     await api('DELETE', `/groups/${groupId}/leave`);
     
