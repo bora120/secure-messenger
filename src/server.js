@@ -355,3 +355,14 @@ app.get('/api/groups/:id/messages', requireAuth, async (req, res) => {
   }));
   return res.json({ messages: out });
 });
+
+// [추가] 단체방 나가기
+app.delete('/api/groups/:id/leave', requireAuth, async (req, res) => {
+  const store = getStore();
+  const groupId = Number(req.params.id);
+  if (!(await store.isGroupMember(groupId, req.user.id))) {
+    return res.status(403).json({ error: '이 방의 멤버가 아닙니다.' });
+  }
+  await store.leaveGroup(groupId, req.user.id);
+  return res.json({ ok: true });
+});
