@@ -5,10 +5,6 @@
 //   1) PostgreSQL  — 환경변수 DATABASE_URL 이 있을 때 (외부 DB / 배포용)
 //   2) SQLite      — better-sqlite3 가 설치돼 있을 때 (로컬 개발용)
 //   3) JSON 파일   — 위 둘 다 안 되면 폴백 (설치 없이 즉시 실행)
-//
-// 모든 백엔드는 동일한 "async" 메서드 인터페이스를 제공한다.
-// SQLite/JSON 은 본래 동기이지만 async 로 감싸서, 호출부가 백엔드 종류와
-// 무관하게 항상 await 만 쓰면 되도록 통일했다.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,11 +23,7 @@ let backend = null;
 // 1) PostgreSQL 백엔드
 // ===========================================================================
 
-// pool 을 받아 PostgreSQL 백엔드 객체를 만든다.
-// 실제 실행에서는 pg 의 Pool 을, 테스트에서는 pglite 등 호환 pool 을 주입한다.
-// pool 은 query(text, params) 와 connect() 를 제공해야 한다.
 export async function buildPgBackend(pool) {
-  // 스키마 생성 (없을 때만)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id            SERIAL PRIMARY KEY,
@@ -53,6 +45,41 @@ export async function buildPgBackend(pool) {
       ciphertext   TEXT NOT NULL,
       signature    TEXT NOT NULL,
       created_at   TEXT NOT NULL
+    );
+  `);
+  // 단체방 테이블
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS groups (
+      id         SERIAL PRIMARY KEY,
+      name       TEXT NOT NULL,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS group_members (
+      group_id  INTEGER NOT NULL REFERENCES groups(id),
+      user_id   INTEGER NOT NULL REFERENCES users(id),
+      PRIMARY KEY (group_id, user_id)
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS group_messages (
+      id         SERIAL PRIMARY KEY,
+      group_id   INTEGER NOT NULL REFERENCES groups(id),
+      sender_id  INTEGER NOT NULL REFERENCES users(id),
+      iv         TEXT NOT NULL,
+      ciphertext TEXT NOT NULL,
+      signature  TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS group_message_keys (
+      message_id INTEGER NOT NULL REFERENCES group_messages(id),
+      user_id    INTEGER NOT NULL REFERENCES users(id),
+      enc_key    TEXT NOT NULL,
+      PRIMARY KEY (message_id, user_id)
     );
   `);
 
@@ -100,10 +127,16 @@ export async function buildPgBackend(pool) {
       return r.rows;
     },
     async deleteUser(userId) {
-      // 트랜잭션으로 메시지 먼저 삭제 후 사용자 삭제
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+        await client.query('DELETE FROM group_message_keys WHERE user_id = $1', [userId]);
+        const gms = await client.query('SELECT id FROM group_messages WHERE sender_id = $1', [userId]);
+        for (const gm of gms.rows) {
+          await client.query('DELETE FROM group_message_keys WHERE message_id = $1', [gm.id]);
+        }
+        await client.query('DELETE FROM group_messages WHERE sender_id = $1', [userId]);
+        await client.query('DELETE FROM group_members WHERE user_id = $1', [userId]);
         await client.query('DELETE FROM messages WHERE sender_id = $1 OR receiver_id = $1', [userId]);
         await client.query('DELETE FROM users WHERE id = $1', [userId]);
         await client.query('COMMIT');
@@ -116,8 +149,7 @@ export async function buildPgBackend(pool) {
     },
     async createMessage(m) {
       const r = await pool.query(
-        `INSERT INTO messages
-          (sender_id, receiver_id, enc_key, iv, ciphertext, signature, created_at)
+        `INSERT INTO messages (sender_id, receiver_id, enc_key, iv, ciphertext, signature, created_at)
           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
         [m.senderId, m.receiverId, m.encKey, m.iv, m.ciphertext, m.signature, m.createdAt]
       );
@@ -137,28 +169,117 @@ export async function buildPgBackend(pool) {
       );
       return r.rows;
     },
+    // --- 단체방 ---
+    async createGroup(name, createdBy, createdAt, memberIds) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const r = await client.query(
+          'INSERT INTO groups (name, created_by, created_at) VALUES ($1, $2, $3) RETURNING id',
+          [name, createdBy, createdAt]
+        );
+        const groupId = r.rows[0].id;
+        const allMembers = [...new Set([createdBy, ...memberIds])];
+        for (const uid of allMembers) {
+          await client.query(
+            'INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)',
+            [groupId, uid]
+          );
+        }
+        await client.query('COMMIT');
+        return groupId;
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+    },
+    async listGroupsForUser(userId) {
+      const r = await pool.query(
+        `SELECT g.id, g.name, g.created_by, g.created_at
+           FROM groups g
+           JOIN group_members gm ON gm.group_id = g.id
+          WHERE gm.user_id = $1
+          ORDER BY g.id`,
+        [userId]
+      );
+      return r.rows;
+    },
+    async getGroupById(groupId) {
+      const r = await pool.query('SELECT * FROM groups WHERE id = $1', [groupId]);
+      return r.rows[0] || null;
+    },
+    async getGroupMembers(groupId) {
+      const r = await pool.query(
+        `SELECT u.id, u.username, u.enc_pubkey, u.sig_pubkey
+           FROM users u
+           JOIN group_members gm ON gm.user_id = u.id
+          WHERE gm.group_id = $1
+          ORDER BY u.username`,
+        [groupId]
+      );
+      return r.rows;
+    },
+    async isGroupMember(groupId, userId) {
+      const r = await pool.query(
+        'SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2',
+        [groupId, userId]
+      );
+      return r.rows.length > 0;
+    },
+    async createGroupMessage(groupId, senderId, iv, ciphertext, signature, createdAt, memberKeys) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const r = await client.query(
+          `INSERT INTO group_messages (group_id, sender_id, iv, ciphertext, signature, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [groupId, senderId, iv, ciphertext, signature, createdAt]
+        );
+        const msgId = r.rows[0].id;
+        for (const { userId, encKey } of memberKeys) {
+          await client.query(
+            'INSERT INTO group_message_keys (message_id, user_id, enc_key) VALUES ($1, $2, $3)',
+            [msgId, userId, encKey]
+          );
+        }
+        await client.query('COMMIT');
+        return msgId;
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+    },
+    async getGroupMessages(groupId, userId) {
+      const r = await pool.query(
+        `SELECT gm.id, gm.sender_id, gm.iv, gm.ciphertext, gm.signature, gm.created_at,
+                gmk.enc_key
+           FROM group_messages gm
+           JOIN group_message_keys gmk ON gmk.message_id = gm.id AND gmk.user_id = $2
+          WHERE gm.group_id = $1
+          ORDER BY gm.created_at ASC`,
+        [groupId, userId]
+      );
+      return r.rows;
+    },
   };
 }
 
 async function tryPostgres() {
   const url = process.env.DATABASE_URL;
-  if (!url) return null; // DATABASE_URL 이 없으면 PostgreSQL 사용 안 함
-
+  if (!url) return null;
   try {
     const pg = await import('pg');
     const { Pool } = pg.default;
-
-    // Render 등 클라우드 PostgreSQL 은 SSL 을 요구한다.
-    // 로컬 PostgreSQL(예: localhost)은 SSL 이 없을 수 있으므로 구분한다.
     const isLocal = /localhost|127\.0\.0\.1/.test(url);
     const pool = new Pool({
       connectionString: url,
       ssl: isLocal ? false : { rejectUnauthorized: false },
     });
-
-    // 연결 확인
     await pool.query('SELECT 1');
-
     return await buildPgBackend(pool);
   } catch (err) {
     console.error('[store] PostgreSQL 연결 실패:', err.message);
@@ -167,7 +288,7 @@ async function tryPostgres() {
 }
 
 // ===========================================================================
-// 2) SQLite 백엔드 (better-sqlite3)
+// 2) SQLite 백엔드
 // ===========================================================================
 async function trySqlite() {
   try {
@@ -198,9 +319,34 @@ async function trySqlite() {
         FOREIGN KEY (sender_id)   REFERENCES users(id),
         FOREIGN KEY (receiver_id) REFERENCES users(id)
       );
+      CREATE TABLE IF NOT EXISTS groups (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL,
+        created_by INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS group_members (
+        group_id  INTEGER NOT NULL,
+        user_id   INTEGER NOT NULL,
+        PRIMARY KEY (group_id, user_id)
+      );
+      CREATE TABLE IF NOT EXISTS group_messages (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id   INTEGER NOT NULL,
+        sender_id  INTEGER NOT NULL,
+        iv         TEXT NOT NULL,
+        ciphertext TEXT NOT NULL,
+        signature  TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS group_message_keys (
+        message_id INTEGER NOT NULL,
+        user_id    INTEGER NOT NULL,
+        enc_key    TEXT NOT NULL,
+        PRIMARY KEY (message_id, user_id)
+      );
     `);
 
-    // 마이그레이션: 이전 버전 DB에 is_admin 컬럼이 없으면 추가한다.
     const cols = db.prepare("PRAGMA table_info(users)").all();
     if (!cols.some((c) => c.name === 'is_admin')) {
       db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
@@ -244,6 +390,13 @@ async function trySqlite() {
       },
       async deleteUser(userId) {
         const tx = db.transaction((id) => {
+          db.prepare('DELETE FROM group_message_keys WHERE user_id = ?').run(id);
+          const gms = db.prepare('SELECT id FROM group_messages WHERE sender_id = ?').all(id);
+          for (const gm of gms) {
+            db.prepare('DELETE FROM group_message_keys WHERE message_id = ?').run(gm.id);
+          }
+          db.prepare('DELETE FROM group_messages WHERE sender_id = ?').run(id);
+          db.prepare('DELETE FROM group_members WHERE user_id = ?').run(id);
           db.prepare('DELETE FROM messages WHERE sender_id = ? OR receiver_id = ?').run(id, id);
           db.prepare('DELETE FROM users WHERE id = ?').run(id);
         });
@@ -251,8 +404,7 @@ async function trySqlite() {
       },
       async createMessage(m) {
         const info = db
-          .prepare(`INSERT INTO messages
-            (sender_id, receiver_id, enc_key, iv, ciphertext, signature, created_at)
+          .prepare(`INSERT INTO messages (sender_id, receiver_id, enc_key, iv, ciphertext, signature, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)`)
           .run(m.senderId, m.receiverId, m.encKey, m.iv, m.ciphertext, m.signature, m.createdAt);
         return Number(info.lastInsertRowid);
@@ -267,6 +419,73 @@ async function trySqlite() {
           .prepare('SELECT * FROM messages WHERE sender_id = ? ORDER BY created_at DESC')
           .all(userId);
       },
+      // --- 단체방 ---
+      async createGroup(name, createdBy, createdAt, memberIds) {
+        const tx = db.transaction(() => {
+          const info = db.prepare(
+            'INSERT INTO groups (name, created_by, created_at) VALUES (?, ?, ?)'
+          ).run(name, createdBy, createdAt);
+          const groupId = Number(info.lastInsertRowid);
+          const allMembers = [...new Set([createdBy, ...memberIds])];
+          for (const uid of allMembers) {
+            db.prepare('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)').run(groupId, uid);
+          }
+          return groupId;
+        });
+        return tx();
+      },
+      async listGroupsForUser(userId) {
+        return db.prepare(
+          `SELECT g.id, g.name, g.created_by, g.created_at
+             FROM groups g
+             JOIN group_members gm ON gm.group_id = g.id
+            WHERE gm.user_id = ?
+            ORDER BY g.id`
+        ).all(userId);
+      },
+      async getGroupById(groupId) {
+        return db.prepare('SELECT * FROM groups WHERE id = ?').get(groupId) || null;
+      },
+      async getGroupMembers(groupId) {
+        return db.prepare(
+          `SELECT u.id, u.username, u.enc_pubkey, u.sig_pubkey
+             FROM users u
+             JOIN group_members gm ON gm.user_id = u.id
+            WHERE gm.group_id = ?
+            ORDER BY u.username`
+        ).all(groupId);
+      },
+      async isGroupMember(groupId, userId) {
+        return !!db.prepare(
+          'SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?'
+        ).get(groupId, userId);
+      },
+      async createGroupMessage(groupId, senderId, iv, ciphertext, signature, createdAt, memberKeys) {
+        const tx = db.transaction(() => {
+          const info = db.prepare(
+            `INSERT INTO group_messages (group_id, sender_id, iv, ciphertext, signature, created_at)
+              VALUES (?, ?, ?, ?, ?, ?)`
+          ).run(groupId, senderId, iv, ciphertext, signature, createdAt);
+          const msgId = Number(info.lastInsertRowid);
+          for (const { userId, encKey } of memberKeys) {
+            db.prepare(
+              'INSERT INTO group_message_keys (message_id, user_id, enc_key) VALUES (?, ?, ?)'
+            ).run(msgId, userId, encKey);
+          }
+          return msgId;
+        });
+        return tx();
+      },
+      async getGroupMessages(groupId, userId) {
+        return db.prepare(
+          `SELECT gm.id, gm.sender_id, gm.iv, gm.ciphertext, gm.signature, gm.created_at,
+                  gmk.enc_key
+             FROM group_messages gm
+             JOIN group_message_keys gmk ON gmk.message_id = gm.id AND gmk.user_id = ?
+            WHERE gm.group_id = ?
+            ORDER BY gm.created_at ASC`
+        ).all(userId, groupId);
+      },
     };
   } catch (err) {
     return null;
@@ -278,13 +497,14 @@ async function trySqlite() {
 // ===========================================================================
 function jsonBackend() {
   const file = path.join(DB_DIR, 'messenger.json');
-  let data = { users: [], messages: [], seqUser: 0, seqMsg: 0 };
+  let data = { users: [], messages: [], groups: [], groupMembers: [], groupMessages: [], groupMessageKeys: [], seqUser: 0, seqMsg: 0, seqGroup: 0, seqGMsg: 0 };
 
   if (fs.existsSync(file)) {
     try {
-      data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const loaded = JSON.parse(fs.readFileSync(file, 'utf8'));
+      data = { ...data, ...loaded };
     } catch {
-      data = { users: [], messages: [], seqUser: 0, seqMsg: 0 };
+      // 초기화
     }
   }
 
@@ -294,20 +514,10 @@ function jsonBackend() {
 
   return {
     kind: 'json',
-    async countUsers() {
-      return data.users.length;
-    },
+    async countUsers() { return data.users.length; },
     async createUser(username, passwordHash, createdAt, isAdmin = 0) {
       const id = ++data.seqUser;
-      data.users.push({
-        id,
-        username,
-        password_hash: passwordHash,
-        enc_pubkey: null,
-        sig_pubkey: null,
-        is_admin: isAdmin ? 1 : 0,
-        created_at: createdAt,
-      });
+      data.users.push({ id, username, password_hash: passwordHash, enc_pubkey: null, sig_pubkey: null, is_admin: isAdmin ? 1 : 0, created_at: createdAt });
       persist();
       return id;
     },
@@ -319,66 +529,90 @@ function jsonBackend() {
     },
     async setPublicKeys(userId, encPubkey, sigPubkey) {
       const u = data.users.find((x) => x.id === userId);
-      if (u) {
-        u.enc_pubkey = encPubkey;
-        u.sig_pubkey = sigPubkey;
-        persist();
-      }
+      if (u) { u.enc_pubkey = encPubkey; u.sig_pubkey = sigPubkey; persist(); }
     },
     async listUsers(excludeId) {
-      return data.users
-        .filter((u) => u.id !== excludeId)
-        .map((u) => ({
-          id: u.id,
-          username: u.username,
-          enc_pubkey: u.enc_pubkey,
-          sig_pubkey: u.sig_pubkey,
-        }))
+      return data.users.filter((u) => u.id !== excludeId)
+        .map((u) => ({ id: u.id, username: u.username, enc_pubkey: u.enc_pubkey, sig_pubkey: u.sig_pubkey }))
         .sort((a, b) => a.username.localeCompare(b.username));
     },
     async listAllUsers() {
-      return data.users
-        .map((u) => ({
-          id: u.id,
-          username: u.username,
-          is_admin: u.is_admin ? 1 : 0,
-          created_at: u.created_at,
-          sent_count: data.messages.filter((m) => m.sender_id === u.id).length,
-          recv_count: data.messages.filter((m) => m.receiver_id === u.id).length,
-        }))
-        .sort((a, b) => a.id - b.id);
+      return data.users.map((u) => ({
+        id: u.id, username: u.username, is_admin: u.is_admin ? 1 : 0, created_at: u.created_at,
+        sent_count: data.messages.filter((m) => m.sender_id === u.id).length,
+        recv_count: data.messages.filter((m) => m.receiver_id === u.id).length,
+      })).sort((a, b) => a.id - b.id);
     },
     async deleteUser(userId) {
-      data.messages = data.messages.filter(
-        (m) => m.sender_id !== userId && m.receiver_id !== userId
+      const msgIds = data.groupMessages.filter((m) => m.sender_id === userId).map((m) => m.id);
+      data.groupMessageKeys = data.groupMessageKeys.filter(
+        (k) => k.user_id !== userId && !msgIds.includes(k.message_id)
       );
+      data.groupMessages = data.groupMessages.filter((m) => m.sender_id !== userId);
+      data.groupMembers = data.groupMembers.filter((m) => m.user_id !== userId);
+      data.messages = data.messages.filter((m) => m.sender_id !== userId && m.receiver_id !== userId);
       data.users = data.users.filter((u) => u.id !== userId);
       persist();
     },
     async createMessage(m) {
       const id = ++data.seqMsg;
-      data.messages.push({
-        id,
-        sender_id: m.senderId,
-        receiver_id: m.receiverId,
-        enc_key: m.encKey,
-        iv: m.iv,
-        ciphertext: m.ciphertext,
-        signature: m.signature,
-        created_at: m.createdAt,
-      });
+      data.messages.push({ id, sender_id: m.senderId, receiver_id: m.receiverId, enc_key: m.encKey, iv: m.iv, ciphertext: m.ciphertext, signature: m.signature, created_at: m.createdAt });
       persist();
       return id;
     },
     async getInbox(userId) {
-      return data.messages
-        .filter((m) => m.receiver_id === userId)
-        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      return data.messages.filter((m) => m.receiver_id === userId).sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
     async getSent(userId) {
-      return data.messages
-        .filter((m) => m.sender_id === userId)
-        .sort((a, b) => b.created_at.localeCompare(a.created_at));
+      return data.messages.filter((m) => m.sender_id === userId).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    },
+    // --- 단체방 ---
+    async createGroup(name, createdBy, createdAt, memberIds) {
+      const id = ++data.seqGroup;
+      data.groups.push({ id, name, created_by: createdBy, created_at: createdAt });
+      const allMembers = [...new Set([createdBy, ...memberIds])];
+      for (const uid of allMembers) {
+        if (!data.groupMembers.find((m) => m.group_id === id && m.user_id === uid)) {
+          data.groupMembers.push({ group_id: id, user_id: uid });
+        }
+      }
+      persist();
+      return id;
+    },
+    async listGroupsForUser(userId) {
+      const myGroupIds = data.groupMembers.filter((m) => m.user_id === userId).map((m) => m.group_id);
+      return data.groups.filter((g) => myGroupIds.includes(g.id)).sort((a, b) => a.id - b.id);
+    },
+    async getGroupById(groupId) {
+      return data.groups.find((g) => g.id === groupId) || null;
+    },
+    async getGroupMembers(groupId) {
+      const memberIds = data.groupMembers.filter((m) => m.group_id === groupId).map((m) => m.user_id);
+      return data.users.filter((u) => memberIds.includes(u.id))
+        .map((u) => ({ id: u.id, username: u.username, enc_pubkey: u.enc_pubkey, sig_pubkey: u.sig_pubkey }))
+        .sort((a, b) => a.username.localeCompare(b.username));
+    },
+    async isGroupMember(groupId, userId) {
+      return !!data.groupMembers.find((m) => m.group_id === groupId && m.user_id === userId);
+    },
+    async createGroupMessage(groupId, senderId, iv, ciphertext, signature, createdAt, memberKeys) {
+      const id = ++data.seqGMsg;
+      data.groupMessages.push({ id, group_id: groupId, sender_id: senderId, iv, ciphertext, signature, created_at: createdAt });
+      for (const { userId, encKey } of memberKeys) {
+        data.groupMessageKeys.push({ message_id: id, user_id: userId, enc_key: encKey });
+      }
+      persist();
+      return id;
+    },
+    async getGroupMessages(groupId, userId) {
+      const myKeys = {};
+      for (const k of data.groupMessageKeys) {
+        if (k.user_id === userId) myKeys[k.message_id] = k.enc_key;
+      }
+      return data.groupMessages
+        .filter((m) => m.group_id === groupId && myKeys[m.id] !== undefined)
+        .map((m) => ({ ...m, enc_key: myKeys[m.id] }))
+        .sort((a, b) => a.created_at.localeCompare(b.created_at));
     },
   };
 }
