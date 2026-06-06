@@ -27,6 +27,9 @@ const state = {
   user: JSON.parse(sessionStorage.getItem('user') || 'null'),
 };
 
+let selectedRecipientId = null;
+let selectedRecipientPubkey = null;
+
 const $ = (id) => document.getElementById(id);
 
 // --- API 헬퍼 ---
@@ -249,31 +252,72 @@ $('regenKeysBtn').addEventListener('click', async () => {
 async function loadRecipients() {
   try {
     const { users } = await api('GET', '/users');
-    const sel = $('recipient');
-    sel.innerHTML = '';
+
+    const dropdown = $('recipientDropdown');
+    const selectedText = $('selectedRecipient');
+
+    dropdown.innerHTML = '';
+
+    selectedRecipientId = null;
+    selectedRecipientPubkey = null;
+
     if (users.length === 0) {
-      const opt = document.createElement('option');
-      opt.textContent = '(다른 사용자가 없습니다)';
-      opt.value = '';
-      sel.appendChild(opt);
+      selectedText.textContent = '다른 사용자가 없습니다';
+
+      dropdown.innerHTML = `
+        <div class="select-option disabled">
+          다른 사용자가 없습니다
+        </div>
+      `;
+
       return;
     }
-    for (const u of users) {
-      const opt = document.createElement('option');
-      opt.value = u.id;
-      opt.textContent = u.username;
-      opt.dataset.encPubkey = u.enc_pubkey || '';
-      sel.appendChild(opt);
-    }
+
+    users.forEach((u, index) => {
+
+      const option = document.createElement('div');
+
+      option.className = 'select-option';
+
+      option.textContent = u.username;
+
+      option.addEventListener('click', () => {
+
+        document
+          .querySelectorAll('.select-option')
+          .forEach(el => el.classList.remove('selected'));
+
+        option.classList.add('selected');
+
+        selectedRecipientId = u.id;
+        selectedRecipientPubkey = u.enc_pubkey || '';
+
+        selectedText.textContent = u.username;
+
+        $('recipientDropdown').classList.add('hidden');
+        $('recipientTrigger').classList.remove('open');
+      });
+
+      dropdown.appendChild(option);
+
+      if (index === 0) {
+        selectedRecipientId = u.id;
+        selectedRecipientPubkey = u.enc_pubkey || '';
+
+        selectedText.textContent = u.username;
+
+        option.classList.add('selected');
+      }
+    });
+
   } catch (err) {
-    $('sendMsg').textContent = `사용자 목록 오류: ${err.message}`;
+    $('sendMsg').textContent =
+      `사용자 목록 오류: ${err.message}`;
   }
 }
-
 // --- 메시지 전송 ---
 $('sendBtn').addEventListener('click', async () => {
-  const sel = $('recipient');
-  const receiverId = sel.value;
+  const receiverId = selectedRecipientId;
   const plaintext = $('messageBody').value.trim();
   $('sendMsg').textContent = '';
 
