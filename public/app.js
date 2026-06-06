@@ -526,6 +526,8 @@ async function openGroupChat(group) {
   $('groupChatName').textContent = group.name;
   $('groupChatMembers').textContent = group.members.map((m) => m.username).join(', ');
 
+  $('groupLeaveBtn').onclick = () => leaveGroup(group.id, group.name);
+
   await loadGroupMessages();
 }
 
@@ -676,4 +678,26 @@ function bufToB64(buf) {
   let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);
+}
+
+// --- [추가] 단체방 나가기 ---
+async function leaveGroup(groupId, groupName) {
+  const confirmed = window.confirm(
+    `"${groupName}" 방에서 나가시겠습니까?\n나간 후에는 새 메시지를 받을 수 없습니다.`
+  );
+  if (!confirmed) return;
+  try {
+    await api('DELETE', `/groups/${groupId}/leave`);
+    
+    // 채팅창 닫고 초기 화면으로 복귀
+    currentGroupId = null;
+    currentGroupMembers = [];
+    $('groupChatRoom').classList.add('hidden');
+    $('groupChatPlaceholder').classList.remove('hidden');
+    
+    // 목록 새로고침
+    await loadGroups();
+  } catch (err) {
+    alert(`나가기 오류: ${err.message}`);
+  }
 }
