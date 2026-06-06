@@ -1,0 +1,132 @@
+/* public/styles.css */
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --border: #e1e4e8;
+  --text: #1f2328;
+  --muted: #6e7781;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --ok: #15803d;
+  --bad: #b91c1c;
+  --warn-bg: #fff7ed;
+  --warn-border: #fdba74;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+    "Malgun Gothic", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.topbar h1 { font-size: 22px; margin: 0; }
+
+.session { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.hidden { display: none !important; }
+
+/* 인증 */
+.auth { max-width: 420px; margin: 40px auto; }
+.tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+.tab {
+  flex: 1; padding: 10px; border: 1px solid var(--border);
+  background: transparent; border-radius: 8px; cursor: pointer;
+  font-size: 14px; color: var(--muted);
+}
+.tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.form { display: flex; flex-direction: column; gap: 14px; }
+.form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.form input, textarea, select {
+  padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 15px; font-family: inherit; color: var(--text); background: #fff;
+}
+.form input:focus, textarea:focus, select:focus {
+  outline: none; border-color: var(--primary);
+}
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+
+.btn-primary {
+  padding: 11px; background: var(--primary); color: #fff; border: none;
+  border-radius: 8px; font-size: 15px; cursor: pointer; font-weight: 500;
+}
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-ghost {
+  padding: 7px 12px; background: transparent; border: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--muted);
+}
+.btn-ghost:hover { background: var(--bg); }
+
+.msg { font-size: 13px; margin: 12px 0 0; min-height: 18px; color: var(--muted); }
+
+/* 메신저 */
+.compose label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; font-size: 13px; color: var(--muted); }
+.compose h2, .inbox h2, .warn h2 { font-size: 16px; margin: 0 0 16px; }
+.compose .btn-primary { width: 100%; }
+
+.inbox-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.inbox-head h2 { margin: 0; }
+
+.message-list { display: flex; flex-direction: column; gap: 12px; }
+.empty { color: var(--muted); font-size: 14px; text-align: center; padding: 20px 0; }
+
+.message {
+  border: 1px solid var(--border); border-radius: 8px; padding: 14px;
+  background: #fcfcfd;
+}
+.message-meta {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 13px; color: var(--muted); margin-bottom: 8px;
+}
+.message-meta strong { color: var(--text); font-size: 14px; }
+.message-body { font-size: 15px; white-space: pre-wrap; word-break: break-word; }
+.message-body.locked { color: var(--muted); font-style: italic; }
+
+.badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 6px; margin-top: 8px; }
+.badge.ok { background: #dcfce7; color: var(--ok); }
+.badge.bad { background: #fee2e2; color: var(--bad); }
+
+.warn { background: var(--warn-bg); border-color: var(--warn-border); }
+.warn p { font-size: 14px; color: #9a3412; }
+
+/* 관리자 패널 */
+.admin-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.admin-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px;
+  background: #fcfcfd;
+}
+.admin-info { display: flex; flex-direction: column; gap: 4px; }
+.admin-info strong { font-size: 14px; }
+.admin-stats { font-size: 12px; color: var(--muted); }
+.btn-danger {
+  padding: 7px 14px; background: #fff; color: var(--bad);
+  border: 1px solid #fca5a5; border-radius: 8px; cursor: pointer; font-size: 13px;
+}
+.btn-danger:hover { background: #fef2f2; }

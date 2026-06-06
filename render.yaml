@@ -1,0 +1,30 @@
+# render.yaml
+# Render 배포 설정 (Blueprint) — 웹 서비스 + PostgreSQL 데이터베이스.
+# 이 파일이 저장소에 있으면 Render 가 빌드/시작 명령, 환경변수, DB 를 자동 구성한다.
+
+databases:
+  - name: secure-messenger-db
+    plan: free
+    databaseName: messenger
+    user: messenger
+
+services:
+  - type: web
+    name: secure-messenger
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      # 외부 PostgreSQL 연결 문자열 — 위 데이터베이스에서 자동 주입.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: secure-messenger-db
+          property: connectionString
+      # JWT 서명 비밀키 — Render 가 안전한 랜덤값을 자동 생성한다.
+      - key: JWT_SECRET
+        generateValue: true
+      # Node 버전 고정
+      - key: NODE_VERSION
+        value: "22"

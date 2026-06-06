@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>보안 메시지 시스템</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1>🔐 보안 메시지</h1>
+      <div id="session" class="session hidden">
+        <span id="me"></span>
+        <button id="logoutBtn" class="btn-ghost">로그아웃</button>
+      </div>
+    </header>
+
+    <!-- 로그인 / 회원가입 -->
+    <section id="authView" class="card auth">
+      <div class="tabs">
+        <button id="tabLogin" class="tab active">로그인</button>
+        <button id="tabRegister" class="tab">회원가입</button>
+      </div>
+
+      <form id="loginForm" class="form">
+        <label>사용자명
+          <input type="text" id="loginUsername" autocomplete="username" />
+        </label>
+        <label>비밀번호
+          <input type="password" id="loginPassword" autocomplete="current-password" />
+        </label>
+        <button type="submit" class="btn-primary">로그인</button>
+      </form>
+
+      <form id="registerForm" class="form hidden">
+        <label>사용자명 (3~20자, 영문/숫자/_)
+          <input type="text" id="regUsername" autocomplete="username" />
+        </label>
+        <label>비밀번호 (4자 이상)
+          <input type="password" id="regPassword" autocomplete="new-password" />
+        </label>
+        <p class="hint">회원가입 시 이 브라우저에서 RSA 키쌍이 생성되며,
+          개인키는 서버로 전송되지 않고 이 브라우저에만 저장됩니다.</p>
+        <button type="submit" class="btn-primary">회원가입 + 키 생성</button>
+      </form>
+
+      <p id="authMsg" class="msg"></p>
+    </section>
+
+    <!-- 메신저 -->
+    <section id="messengerView" class="messenger hidden">
+      <div class="compose card">
+        <h2>메시지 보내기</h2>
+        <label>받는 사람
+          <select id="recipient"></select>
+        </label>
+        <label>내용
+          <textarea id="messageBody" rows="3" placeholder="메시지를 입력하세요..."></textarea>
+        </label>
+        <button id="sendBtn" class="btn-primary">암호화하여 전송</button>
+        <p id="sendMsg" class="msg"></p>
+      </div>
+
+      <div class="inbox card">
+        <div class="inbox-head">
+          <h2>받은 메시지</h2>
+          <button id="refreshBtn" class="btn-ghost">새로고침</button>
+        </div>
+        <div id="messageList" class="message-list">
+          <p class="empty">받은 메시지가 없습니다.</p>
+        </div>
+      </div>
+
+      <div id="keyWarning" class="card warn hidden">
+        <h2>⚠️ 개인키 없음</h2>
+        <p>이 브라우저에 개인키가 없습니다. 다른 기기에서 가입했거나
+          브라우저 데이터를 삭제한 경우입니다. 받은 메시지를 복호화하려면
+          가입 시 사용한 브라우저가 필요합니다. 새 키쌍을 생성하면
+          이전 메시지는 더 이상 복호화할 수 없습니다.</p>
+        <button id="regenKeysBtn" class="btn-primary">새 키쌍 생성 및 등록</button>
+      </div>
+
+      <div id="adminPanel" class="card admin hidden">
+        <div class="inbox-head">
+          <h2>🛠️ 관리자 패널</h2>
+          <button id="adminRefreshBtn" class="btn-ghost">새로고침</button>
+        </div>
+        <p class="hint">관리자는 사용자 목록과 메시지 건수를 볼 수 있으나,
+          메시지 내용은 암호화되어 있어 누구도(관리자 포함) 열람할 수 없습니다.</p>
+        <div id="adminUserList" class="admin-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

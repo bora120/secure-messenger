@@ -1,0 +1,36 @@
+{
+  "name": "secure-messenger",
+  "version": "1.0.0",
+  "description": "보안 프로토콜 기반 1:1 안전 메시지 시스템 (RSA 공개키 암호화 + 전자서명)",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node test/run-all.js"
+  },
+  "keywords": [
+    "security",
+    "rsa",
+    "digital-signature",
+    "e2e-encryption",
+    "messaging"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.21.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.3.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.1",
+    "fake-indexeddb": "^6.2.5"
+  }
+}
