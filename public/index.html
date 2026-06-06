@@ -61,9 +61,16 @@
       <div id="dmView">
         <div class="compose card">
           <h2>메시지 보내기</h2>
-          <label>받는 사람
-            <select id="recipient"></select>
-          </label>
+          <label>받는 사람</label>
+          <div class="custom-select" id="recipientSelect">
+            <button type="button" class="select-trigger">
+              <span id="selectedRecipient">사용자를 선택하세요</span>
+              <span class="select-arrow">⌄</span>
+            </button>
+          
+            <div class="select-dropdown hidden" id="recipientDropdown">
+            </div>
+          </div>
           <label>내용
             <textarea id="messageBody" rows="3" placeholder="메시지를 입력하세요..."></textarea>
           </label>
