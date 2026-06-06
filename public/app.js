@@ -27,9 +27,6 @@ const state = {
   user: JSON.parse(sessionStorage.getItem('user') || 'null'),
 };
 
-let selectedRecipientId = null;
-let selectedRecipientPubkey = null;
-
 const $ = (id) => document.getElementById(id);
 
 // --- API 헬퍼 ---
@@ -63,6 +60,7 @@ function clearSession() {
   sessionStorage.removeItem('token');
   sessionStorage.removeItem('user');
 }
+
 
 // --- 화면 전환 ---
 function showAuth() {
@@ -252,72 +250,31 @@ $('regenKeysBtn').addEventListener('click', async () => {
 async function loadRecipients() {
   try {
     const { users } = await api('GET', '/users');
-
-    const dropdown = $('recipientDropdown');
-    const selectedText = $('selectedRecipient');
-
-    dropdown.innerHTML = '';
-
-    selectedRecipientId = null;
-    selectedRecipientPubkey = null;
-
+    const sel = $('recipient');
+    sel.innerHTML = '';
     if (users.length === 0) {
-      selectedText.textContent = '다른 사용자가 없습니다';
-
-      dropdown.innerHTML = `
-        <div class="select-option disabled">
-          다른 사용자가 없습니다
-        </div>
-      `;
-
+      const opt = document.createElement('option');
+      opt.textContent = '(다른 사용자가 없습니다)';
+      opt.value = '';
+      sel.appendChild(opt);
       return;
     }
-
-    users.forEach((u, index) => {
-
-      const option = document.createElement('div');
-
-      option.className = 'select-option';
-
-      option.textContent = u.username;
-
-      option.addEventListener('click', () => {
-
-        document
-          .querySelectorAll('.select-option')
-          .forEach(el => el.classList.remove('selected'));
-
-        option.classList.add('selected');
-
-        selectedRecipientId = u.id;
-        selectedRecipientPubkey = u.enc_pubkey || '';
-
-        selectedText.textContent = u.username;
-
-        $('recipientDropdown').classList.add('hidden');
-        $('recipientTrigger').classList.remove('open');
-      });
-
-      dropdown.appendChild(option);
-
-      if (index === 0) {
-        selectedRecipientId = u.id;
-        selectedRecipientPubkey = u.enc_pubkey || '';
-
-        selectedText.textContent = u.username;
-
-        option.classList.add('selected');
-      }
-    });
-
+    for (const u of users) {
+      const opt = document.createElement('option');
+      opt.value = u.id;
+      opt.textContent = u.username;
+      opt.dataset.encPubkey = u.enc_pubkey || '';
+      sel.appendChild(opt);
+    }
   } catch (err) {
-    $('sendMsg').textContent =
-      `사용자 목록 오류: ${err.message}`;
+    $('sendMsg').textContent = `사용자 목록 오류: ${err.message}`;
   }
 }
+
 // --- 메시지 전송 ---
 $('sendBtn').addEventListener('click', async () => {
-  const receiverId = selectedRecipientId;
+  const sel = $('recipient');
+  const receiverId = sel.value;
   const plaintext = $('messageBody').value.trim();
   $('sendMsg').textContent = '';
 
@@ -570,8 +527,6 @@ async function openGroupChat(group) {
   $('groupChatName').textContent = group.name;
   $('groupChatMembers').textContent = group.members.map((m) => m.username).join(', ');
 
-  $('groupLeaveBtn').onclick = () => leaveGroup(group.id, group.name);
-
   await loadGroupMessages();
 }
 
@@ -723,57 +678,3 @@ function bufToB64(buf) {
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);
 }
-
-// --- [추가] 단체방 나가기 ---
-async function leaveGroup(groupId, groupName) {
-  const confirmed = window.confirm(
-    `"${groupName}" 방에서 나가시겠습니까?\n나간 후에는 새 메시지를 받을 수 없습니다.`
-  );
-  if (!confirmed) return;
-  
-  try {
-    await api('DELETE', `/groups/${groupId}/leave`);
-    
-    // 채팅창 닫고 초기 화면으로 복귀
-    currentGroupId = null;
-    currentGroupMembers = [];
-    $('groupChatRoom').classList.add('hidden');
-    $('groupChatPlaceholder').classList.remove('hidden');
-    
-    // 목록 새로고침
-    await loadGroups();
-  } catch (err) {
-    alert(`나가기 오류: ${err.message}`);
-  }
-}
-
-
-// 토글 관련
-document.addEventListener('click', (e) => {
-
-  const select = document.querySelector('.custom-select');
-
-  if (!select) return;
-
-  if (!select.contains(e.target)) {
-
-    $('recipientDropdown').classList.add('hidden');
-
-    $('recipientTrigger').classList.remove('open');
-  }
-});
-
-document.addEventListener('DOMContentLoaded', () => {
-
-  const trigger = $('recipientTrigger');
-
-  if (!trigger) return;
-
-  trigger.addEventListener('click', () => {
-
-    $('recipientDropdown').classList.toggle('hidden');
-
-    trigger.classList.toggle('open');
-
-  });
-});
