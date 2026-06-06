@@ -66,6 +66,10 @@ function showAuth() {
   $('authView').classList.remove('hidden');
   $('messengerView').classList.add('hidden');
   $('session').classList.add('hidden');
+
+  // 로그인 전/후 헤더 전환
+  document.body.classList.add('auth-mode');
+  document.body.classList.remove('logged-in');
 }
 
 async function showMessenger() {
@@ -73,6 +77,10 @@ async function showMessenger() {
   $('messengerView').classList.remove('hidden');
   $('session').classList.remove('hidden');
   $('me').textContent = `${state.user.username} 님`;
+
+  // 로그인 전환
+  document.body.classList.add('logged-in');
+  document.body.classList.remove('auth-mode');
 
   // 개인키 존재 여부 확인
   const ok = await hasPrivateKeys(state.user.username);
