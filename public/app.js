@@ -12,6 +12,7 @@ import {
   importSigPrivateKey,
   encryptMessage,
   decryptMessage,
+  decryptGroupMessage,  // ← 단체방 전용 복호화+검증 함수 추가
 } from './crypto.js';
 
 import {
@@ -561,15 +562,20 @@ async function loadGroupMessages() {
       } else {
         try {
           const encPriv = await importEncPrivateKey(myKeys.encPrivJwk);
-          const senderSigPub = m.senderSigPubkey ? await importSigPublicKey(m.senderSigPubkey) : null;
+          const senderSigPub = m.senderSigPubkey
+            ? await importSigPublicKey(m.senderSigPubkey)
+            : null;
 
-          const { plaintext, verified } = await decryptMessage(
+          // ✅ 수정: DM용 decryptMessage 대신 단체방 전용 decryptGroupMessage 사용
+          // 단체방 서명 포맷 "group:groupId|senderId|평문" 으로 정확히 검증
+          const { plaintext, verified } = await decryptGroupMessage(
             { encKey: m.encKey, iv: m.iv, ciphertext: m.ciphertext, signature: m.signature },
             encPriv,
             senderSigPub,
-            m.senderId,
-            state.user.id
+            currentGroupId,  // groupId
+            m.senderId       // senderId
           );
+
           bubble.textContent = plaintext;
 
           const verifyBadge = document.createElement('div');
