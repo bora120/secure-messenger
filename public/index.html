@@ -62,13 +62,19 @@
         <div class="compose card">
           <h2>메시지 보내기</h2>
           <label>받는 사람</label>
-          <div class="custom-select" id="recipientSelect">
-            <button type="button" class="select-trigger">
-              <span id="selectedRecipient">사용자를 선택하세요</span>
+          <div class="custom-select">
+            <button
+              type="button"
+              id="recipientTrigger"
+              class="select-trigger">
+              <span id="selectedRecipient">
+                사용자를 선택하세요
+              </span>
               <span class="select-arrow">⌄</span>
             </button>
-          
-            <div class="select-dropdown hidden" id="recipientDropdown">
+            <div
+              id="recipientDropdown"
+              class="select-dropdown hidden">
             </div>
           </div>
           <label>내용
