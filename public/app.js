@@ -671,6 +671,27 @@ $('groupSendBtn').addEventListener('click', async () => {
   }
 });
 
+$('leaveGroupBtn').addEventListener('click', async () => {
+  if (!currentGroupId) return;
+  if (!confirm('정말 이 단체방에서 나가시겠습니까?')) return;
+
+  try {
+    // 서버의 DELETE /groups/:id/leave 엔드포인트를 호출
+    await api('DELETE', `/groups/${currentGroupId}/leave`);
+    
+    // UI 초기화: 채팅창을 숨기고 플레이스홀더를 보여줌
+    currentGroupId = null;
+    currentGroupMembers = [];
+    $('groupChatRoom').classList.add('hidden');
+    $('groupChatPlaceholder').classList.remove('hidden');
+    
+    // 방 목록 다시 불러와서 나간 방이 사라졌는지 확인
+    await loadGroups();
+  } catch (err) {
+    alert(`나가기 오류: ${err.message}`);
+  }
+});
+
 // bufToB64 헬퍼 (crypto.js 내부 함수 재노출)
 function bufToB64(buf) {
   const bytes = new Uint8Array(buf);
